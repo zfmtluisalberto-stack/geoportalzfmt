@@ -392,13 +392,14 @@
         #info-panel {
             position: fixed;
             top: 70px; right: 10px;
-            width: 230px;
+            width: 280px;
             background: var(--panel);
             border: 1px solid var(--panel-border);
             border-radius: var(--radius);
             z-index: 900;
             overflow: hidden;
-            transition: opacity .3s;
+            display: flex; flex-direction: column;
+            max-height: 70vh;
         }
         #info-panel .ip-header {
             padding: 10px 14px;
@@ -409,9 +410,21 @@
             text-transform: uppercase;
             letter-spacing: .08em;
             color: var(--accent);
-            display: flex; gap: 6px; align-items: center;
+            display: flex; gap: 6px; align-items: center; flex-shrink: 0;
         }
-        #info-stats { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+        #info-panel .close-info {
+            background: none; border: none; color: var(--muted);
+            cursor: pointer; margin-left: auto; font-size: 12px;
+        }
+        #info-panel .close-info:hover { color: var(--text); }
+        #info-stats { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+        #selected-feature-info { padding: 12px 14px; flex: 1; overflow-y: auto; display: none; }
+        #selected-feature-info.visible { display: block; }
+        #selected-feature-info h4 { font-family: 'Syne', sans-serif; font-size: 11px; color: var(--accent); margin-bottom: 8px; text-transform: uppercase; }
+        #selected-feature-info .feature-attr { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; border-bottom: 1px solid var(--panel-border); padding-bottom: 8px; }
+        #selected-feature-info .feature-attr:last-child { border-bottom: none; }
+        #selected-feature-info .attr-key { font-size: 9px; color: var(--muted); text-transform: uppercase; }
+        #selected-feature-info .attr-val { font-size: 11px; color: var(--text); word-break: break-word; }
         .stat-row { display: flex; align-items: baseline; gap: 6px; }
         .stat-label { font-size: 10px; color: var(--muted); flex: 1; }
         .stat-val { font-family: 'Syne', sans-serif; font-size: 14px; font-weight: 700; color: var(--accent); }
@@ -550,14 +563,16 @@
         <h2><i class="fa-solid fa-layer-group" style="margin-right:6px;font-size:9px;"></i>Capas Temáticas</h2>
         <div class="search-wrap">
             <i class="fa-solid fa-magnifying-glass"></i>
-            <input id="geo-search" type="text" placeholder="Buscar capa…">
+            <input id="occupation-search" type="text" placeholder="Buscar ocupaciones…">
         </div>
+        <div id="occupation-search-info" class="search-info">Busca en ocupaciones irregulares</div>
+        <div id="occupation-search-results" class="search-results"></div>
         <div class="search-wrap" style="margin-top:10px;">
             <i class="fa-solid fa-magnifying-glass"></i>
-            <input id="field-search" type="text" placeholder="Buscar concesión…">
+            <input id="concession-search" type="text" placeholder="Buscar concesiones…">
         </div>
-        <div id="field-search-info" class="search-info">Busca por atributos de las concesiones</div>
-        <div id="field-search-results" class="search-results"></div>
+        <div id="concession-search-info" class="search-info">Busca en concesiones (Pacífico y Golfo)</div>
+        <div id="concession-search-results" class="search-results"></div>
     </div>
 
     <div class="sb-section" id="layers-panel">
@@ -621,7 +636,10 @@
 
 <!-- INFO PANEL -->
 <div id="info-panel">
-    <div class="ip-header"><i class="fa-solid fa-circle-info"></i>Vista general</div>
+    <div class="ip-header">
+        <i class="fa-solid fa-circle-info"></i>Información
+        <button class="close-info" onclick="clearFeatureSelection()" title="Limpiar selección"><i class="fa-solid fa-xmark"></i></button>
+    </div>
     <div id="info-stats">
         <div class="stat-row">
             <span class="stat-label">Municipio</span>
@@ -636,6 +654,7 @@
             <span class="stat-val" id="zoom-info">8</span>
         </div>
     </div>
+    <div id="selected-feature-info"></div>
 </div>
 
 <!-- LEGEND MODAL -->
@@ -877,11 +896,51 @@ function updateToggleIcon() {
         : 'fa-solid fa-chevron-left';
 }
 
+
+/* ─── UTM CONVERSION ─── */
+function latLngToUTM(lat, lng) {
+    var k0 = 0.9996;
+    var a = 6378137.0;
+    var eccSquared = 0.00669438;
+    var eccPrimeSquared = eccSquared / (1 - eccSquared);
+    
+    var zone = Math.floor((lng + 180) / 6) + 1;
+    var zoneCM = (zone - 1) * 6 - 180 + 3;
+    
+    var latRad = lat * Math.PI / 180;
+    var lngRad = lng * Math.PI / 180;
+    var zoneCMRad = zoneCM * Math.PI / 180;
+    
+    var N = a / Math.sqrt(1 - eccSquared * Math.sin(latRad) * Math.sin(latRad));
+    var T = Math.tan(latRad) * Math.tan(latRad);
+    var C = eccPrimeSquared * Math.cos(latRad) * Math.cos(latRad);
+    var A = Math.cos(latRad) * (lngRad - zoneCMRad);
+    
+    var M = a * ((1 - eccSquared / 4 - 3 * eccSquared * eccSquared / 64 - 5 * eccSquared * eccSquared * eccSquared / 256) * latRad
+        - (3 * eccSquared / 8 + 3 * eccSquared * eccSquared / 32 - 45 * eccSquared * eccSquared * eccSquared / 1024) * Math.sin(2 * latRad)
+        + (15 * eccSquared * eccSquared / 256 - 45 * eccSquared * eccSquared * eccSquared / 1024) * Math.sin(4 * latRad)
+        - (35 * eccSquared * eccSquared * eccSquared / 3072) * Math.sin(6 * latRad));
+    
+    var east = k0 * N * (A + (A * A * A / 6) * (1 - T + C)
+        + (A * A * A * A * A / 120) * (1 - 18 * T + T * T + 72 * C - 58 * eccPrimeSquared)) + 500000;
+    
+    var north = k0 * (M + N * Math.tan(latRad) * (A * A / 2
+        + (A * A * A * A / 24) * (5 - T + 9 * C + 4 * C * C)
+        + (A * A * A * A * A * A / 720) * (61 - 58 * T + T * T + 600 * C - 330 * eccPrimeSquared)));
+    
+    if (lat < 0) north += 10000000;
+    
+    return {
+        zone: zone,
+        east: Math.round(east),
+        north: Math.round(north)
+    };
+}
+
 /* ─── COORDINATES ─── */
 map.on('mousemove', function(e) {
-    var lat = e.latlng.lat.toFixed(5);
-    var lng = e.latlng.lng.toFixed(5);
-    var txt = lat + ', ' + lng;
+    var utm = latLngToUTM(e.latlng.lat, e.latlng.lng);
+    var txt = utm.zone + ' ' + utm.east + ' ' + utm.north;
     document.getElementById('coord-bar').textContent = txt;
     document.getElementById('coord-display').textContent = txt;
 });
@@ -894,6 +953,107 @@ function updateZoom() {
 }
 map.on('zoomend', updateZoom);
 updateZoom();
+
+/* ─── OCCUPATION SEARCH INDEX ─── */
+var occupationSearchFeatures = [];
+
+function buildOccupationIndex() {
+    occupationSearchFeatures = [];
+    ['oi'].forEach(function(key) {
+        if (!layers[key]) return;
+        layers[key].eachLayer(function(layer) {
+            var props = (layer.feature && layer.feature.properties) ? layer.feature.properties : {};
+            var searchable = Object.keys(props)
+                .map(function(field) {
+                    var value = props[field] != null ? String(props[field]) : '';
+                    return (field + ' ' + value).toLowerCase();
+                })
+                .join(' | ');
+            occupationSearchFeatures.push({ key: key, layer: layer, searchable: searchable, properties: props });
+        });
+    });
+}
+
+buildOccupationIndex();
+
+function zoomToOccupationResult(result) {
+    if (!result || !result.layer) return;
+    if (map.hasLayer(layers[result.key]) === false) {
+        layers[result.key].addTo(map);
+    }
+    try {
+        var group = L.featureGroup([result.layer]);
+        map.fitBounds(group.getBounds().pad(0.3));
+    } catch (e) {
+        if (result.layer.getLatLng) {
+            map.setView(result.layer.getLatLng(), 13);
+        }
+    }
+    showFeatureInfo(result.layer);
+}
+
+function buildOccupationLabel(props) {
+    return props.Clave || props.Status || 'Ocupación';
+}
+
+function buildOccupationSummary(props) {
+    var lines = [];
+    if (props.Status) lines.push(props.Status);
+    if (props.Clave) lines.push('Clave: ' + props.Clave);
+    return lines.join(' · ');
+}
+
+function renderOccupationSearchResults(results) {
+    var container = document.getElementById('occupation-search-results');
+    container.innerHTML = '';
+    if (!results || !results.length) {
+        return;
+    }
+    var maxResults = 12;
+    results.slice(0, maxResults).forEach(function(item, index) {
+        var props = item.properties;
+        var title = buildOccupationLabel(props);
+        var summary = buildOccupationSummary(props);
+        var resultEl = document.createElement('div');
+        resultEl.className = 'search-result-item';
+        resultEl.setAttribute('data-result-index', index);
+        resultEl.innerHTML = '<div class="search-result-title">' + title + '</div>' +
+            (summary ? '<div class="search-result-meta">' + summary + '</div>' : '');
+        resultEl.addEventListener('click', function() {
+            var active = container.querySelector('.search-result-item.active');
+            if (active) active.classList.remove('active');
+            resultEl.classList.add('active');
+            zoomToOccupationResult(item);
+        });
+        container.appendChild(resultEl);
+    });
+    if (results.length > maxResults) {
+        var moreEl = document.createElement('div');
+        moreEl.className = 'search-result-meta';
+        moreEl.style.padding = '8px 14px 6px';
+        moreEl.textContent = 'Mostrando ' + maxResults + ' de ' + results.length + ' resultados.';
+        container.appendChild(moreEl);
+    }
+}
+
+/* ─── OCCUPATION FIELD SEARCH ─── */
+document.getElementById('occupation-search').addEventListener('input', function() {
+    var q = this.value.toLowerCase().trim();
+    var info = document.getElementById('occupation-search-info');
+    var container = document.getElementById('occupation-search-results');
+    if (!q) {
+        info.textContent = 'Busca en ocupaciones irregulares';
+        container.innerHTML = '';
+        return;
+    }
+    var results = occupationSearchFeatures.filter(function(item) {
+        return item.searchable.indexOf(q) !== -1;
+    });
+    info.textContent = results.length
+        ? results.length + ' resultado' + (results.length === 1 ? '' : 's')
+        : 'Sin resultados para "' + this.value + '"';
+    renderOccupationSearchResults(results);
+});
 
 /* ─── CONCESSION SEARCH INDEX ─── */
 var concessionSearchFeatures = [];
@@ -910,7 +1070,7 @@ function buildConcessionIndex() {
                     return (field + ' ' + value).toLowerCase();
                 })
                 .join(' | ');
-            concessionSearchFeatures.push({ key: key, layer: layer, searchable: searchable });
+            concessionSearchFeatures.push({ key: key, layer: layer, searchable: searchable, properties: props });
         });
     });
 }
@@ -930,9 +1090,7 @@ function zoomToConcessionResult(result) {
             map.setView(result.layer.getLatLng(), 13);
         }
     }
-    if (result.layer.openPopup) {
-        result.layer.openPopup();
-    }
+    showFeatureInfo(result.layer);
 }
 
 function buildConcessionLabel(props) {
@@ -943,19 +1101,19 @@ function buildConcessionSummary(props) {
     var lines = [];
     if (props.Nombre_del) lines.push(props.Nombre_del);
     if (props.Status) lines.push(props.Status);
-    if (props.Concesion_) lines.push(props.Concesion_);
+    if (props.Concesion_) lines.push('Clave: ' + props.Concesion_);
     return lines.join(' · ');
 }
 
 function renderConcessionSearchResults(results) {
-    var container = document.getElementById('field-search-results');
+    var container = document.getElementById('concession-search-results');
     container.innerHTML = '';
     if (!results || !results.length) {
         return;
     }
     var maxResults = 12;
     results.slice(0, maxResults).forEach(function(item, index) {
-        var props = item.layer.feature && item.layer.feature.properties ? item.layer.feature.properties : {};
+        var props = item.properties;
         var title = buildConcessionLabel(props);
         var summary = buildConcessionSummary(props);
         var resultEl = document.createElement('div');
@@ -980,22 +1138,13 @@ function renderConcessionSearchResults(results) {
     }
 }
 
-/* ─── LAYER LIST SEARCH ─── */
-document.getElementById('geo-search').addEventListener('input', function() {
-    var q = this.value.toLowerCase();
-    document.querySelectorAll('.layer-item').forEach(function(item) {
-        var name = item.querySelector('.layer-name').textContent.toLowerCase();
-        item.style.display = (!q || name.includes(q)) ? '' : 'none';
-    });
-});
-
 /* ─── CONCESSION FIELD SEARCH ─── */
-document.getElementById('field-search').addEventListener('input', function() {
+document.getElementById('concession-search').addEventListener('input', function() {
     var q = this.value.toLowerCase().trim();
-    var info = document.getElementById('field-search-info');
-    var container = document.getElementById('field-search-results');
+    var info = document.getElementById('concession-search-info');
+    var container = document.getElementById('concession-search-results');
     if (!q) {
-        info.textContent = 'Busca por atributos de las concesiones';
+        info.textContent = 'Busca en concesiones (Pacífico y Golfo)';
         container.innerHTML = '';
         return;
     }
@@ -1006,6 +1155,71 @@ document.getElementById('field-search').addEventListener('input', function() {
         ? results.length + ' resultado' + (results.length === 1 ? '' : 's')
         : 'Sin resultados para "' + this.value + '"';
     renderConcessionSearchResults(results);
+});
+
+/* ─── FEATURE SELECTION & INFO PANEL ─── */
+var selectedFeature = null;
+
+function showFeatureInfo(layer) {
+    if (!layer || !layer.feature) return;
+    var props = layer.feature.properties || {};
+    var infoDiv = document.getElementById('selected-feature-info');
+    var layerName = 'Elemento';
+    
+    // Determine layer name
+    if (props.Concesion_) layerName = 'Concesión';
+    else if (props.Clave) layerName = 'Ocupación Irregular';
+    else if (props.ZONA_DESC) layerName = 'Zona ZFMT';
+    else if (props.NOMGEO) layerName = 'Localidad';
+    
+    var html = '<h4><i class="fa-solid fa-info" style="margin-right:6px;font-size:9px"></i>' + layerName + '</h4>';
+    var propsArray = Object.entries(props);
+    
+    if (propsArray.length === 0) {
+        html += '<div style="color:var(--muted);font-size:10px">Sin atributos</div>';
+    } else {
+        propsArray.forEach(function(entry) {
+            var key = entry[0];
+            var val = entry[1];
+            if (val != null && String(val).trim() !== '') {
+                html += '<div class="feature-attr">' +
+                    '<div class="attr-key">' + key + '</div>' +
+                    '<div class="attr-val">' + val + '</div>' +
+                    '</div>';
+            }
+        });
+    }
+    infoDiv.innerHTML = html;
+    infoDiv.classList.add('visible');
+    selectedFeature = layer;
+}
+
+function clearFeatureSelection() {
+    document.getElementById('selected-feature-info').classList.remove('visible');
+    document.getElementById('selected-feature-info').innerHTML = '';
+    selectedFeature = null;
+}
+
+/* ─── ATTACH CLICK HANDLERS TO LAYERS ─── */
+function attachFeatureClickHandlers(layer) {
+    if (layer.eachLayer) {
+        layer.eachLayer(function(subLayer) {
+            if (subLayer.on) {
+                subLayer.on('click', function() {
+                    showFeatureInfo(subLayer);
+                });
+            }
+        });
+    } else if (layer.on) {
+        layer.on('click', function() {
+            showFeatureInfo(layer);
+        });
+    }
+}
+
+// Attach handlers to all layers
+order.forEach(function(k) {
+    if (layers[k]) { attachFeatureClickHandlers(layers[k]); }
 });
 
 /* ─── SCALE ─── */
